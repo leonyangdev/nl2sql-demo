@@ -1,0 +1,16 @@
+# Keep this file ASCII-only.
+# pip on Windows reads it with the local ANSI codec (GBK/cp936), so non-ASCII
+# comments raise UnicodeDecodeError. All Chinese docs live in README.md.
+
+# Core dependency: the whole demo runs on this one alone.
+# Embedding and LLM both go through the standard library (urllib), so no
+# extra packages are needed for the online services.
+SQLAlchemy>=2.0
+
+# ---------------------------------------------------------------------------
+# Optional: real Milvus vector database
+#   docker run -d --name milvus -p 19530:19530 -p 9091:9091 milvusdb/milvus:latest
+#   pip install pymilvus
+#   set NL2SQL_VECTOR_STORE=milvus
+# ---------------------------------------------------------------------------
+# pymilvus>=2.4

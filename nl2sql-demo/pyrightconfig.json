@@ -1,0 +1,5 @@
+{
+  "typeCheckingMode": "standard",
+  "reportImplicitRelativeImport": "none",
+  "reportUnusedCallResult": "none"
+}

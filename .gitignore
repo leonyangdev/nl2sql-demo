@@ -1,0 +1,44 @@
+# ================= Python =================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ================= 虚拟环境 =================
+.venv/
+venv/
+env/
+ENV/
+
+# ================= 密钥：绝对不要提交 =================
+.env
+.env.*
+!.env.example
+
+# ========= 运行时生成的数据库 / 产物（可重新生成） =========
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# ================= 缓存 / 测试 / 类型检查 =================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ================= 编辑器 / IDE =================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ================= 操作系统 =================
+.DS_Store
+Thumbs.db
+desktop.ini

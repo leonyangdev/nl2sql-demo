@@ -20,10 +20,14 @@ ENV/
 !.env.example
 
 # ========= 运行时生成的数据库 / 产物（可重新生成） =========
+# 都由 python main.py all 重新生成
 *.db
 *.sqlite
 *.sqlite3
 *.log
+sales.db
+metadata.db
+vector_store.db
 
 # ================= 缓存 / 测试 / 类型检查 =================
 .pytest_cache/

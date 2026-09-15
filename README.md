@@ -1,5 +1,9 @@
 # NL2SQL Demo —— 最小可运行架构
 
+> 📘 配套的 VitePress 系统文档位于 [`book`](./book)。进入该目录执行
+> `npm install && npm run docs:dev`，可阅读从元数据治理、语义检索、JOIN 图到
+> 安全 SQL 生成的完整教程。
+
 用 **一个依赖（SQLAlchemy）** 跑通 NL2SQL 的完整骨架，
 把"元数据准备"和"在线问答"两阶段真正串起来，方便对照课程逐层理解。
 

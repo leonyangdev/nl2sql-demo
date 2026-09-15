@@ -89,6 +89,40 @@ def persist_documents(
     return changed, unchanged
 
 
+def _mark_embedding_status(
+    session: Session,
+    entity_keys: list[str],
+    model_name: str,
+) -> None:
+    """把指定的检索文档标记为"已 Embedding"。
+
+    状态回写必须和"本轮要不要重建向量"解耦：向量库里已经有向量的文档，
+    状态就该是 done —— 哪怕这一轮什么都不用做。
+    """
+    if not entity_keys:
+        return
+
+    rows = session.scalars(
+        select(RetrievalDocumentModel).where(
+            RetrievalDocumentModel.entity_key.in_(entity_keys)
+        )
+    ).all()
+    for row in rows:
+        row.embedding_model = model_name
+        row.embedding_status = "done"
+
+
+def _pending_entity_keys(session: Session) -> set[str]:
+    """还没被标记为已 Embedding 的检索文档，用于兜底重算。"""
+    return set(
+        session.scalars(
+            select(RetrievalDocumentModel.entity_key).where(
+                RetrievalDocumentModel.embedding_status != "done"
+            )
+        ).all()
+    )
+
+
 def _corpus_signature(documents: list[RetrievalDocument]) -> str:
     joined = "|".join(
         f"{d.entity_key}:{content_hash(d.content)}" for d in documents
@@ -111,6 +145,11 @@ def build_index(
     with Session(metadata_engine) as session:
         documents = build_all_retrieval_documents(session)
         changed, _ = persist_documents(session, documents)
+        # persist 之后，所有"内容变了 / 刚被 init 整表重建"的文档都是 pending，
+        # 它们才是本轮真正要处理的对象。
+        # 不能只看 changed：上一轮若在回写状态前中断，content_hash 已经落库，
+        # 这一轮它就不会再出现在 changed 里，于是永远卡在 pending。
+        pending_keys = _pending_entity_keys(session)
 
     report = IndexReport(
         total_documents=len(documents),
@@ -136,6 +175,14 @@ def build_index(
     )
     if up_to_date:
         report.skipped = True
+        # 向量库已经是这批文档的最新状态，但 retrieval_document 可能刚被
+        # `init` 整表重建（此时行行都是 pending）。状态必须在这里补写回来，
+        # 否则"跳过重建"会留下"向量库有向量、落库却还是 pending"的矛盾状态。
+        with Session(metadata_engine) as session:
+            _mark_embedding_status(
+                session, [d.entity_key for d in documents], embedder.name
+            )
+            session.commit()
         print(f"[indexer] 向量索引已是最新（{store.count()} 条），跳过重建")
         return report
 
@@ -149,7 +196,13 @@ def build_index(
         or store.count() != len(documents)
     )
 
-    to_embed = documents if needs_full_rebuild else changed
+    # 增量时按"当前仍是 pending 的文档"取，而不是按 changed：
+    # 两种情况都覆盖得到，重复 Embedding 一次也无害（upsert 幂等）。
+    to_embed = (
+        documents
+        if needs_full_rebuild
+        else [d for d in documents if d.entity_key in pending_keys]
+    )
 
     # ---- 3. Embedding ----
     vectors = embedder.encode([d.content for d in to_embed])
@@ -179,15 +232,9 @@ def build_index(
 
     # ---- 5. 回写 Embedding 状态 ----
     with Session(metadata_engine) as session:
-        for record in records:
-            row = session.scalar(
-                select(RetrievalDocumentModel).where(
-                    RetrievalDocumentModel.entity_key == record.entity_key
-                )
-            )
-            if row is not None:
-                row.embedding_model = embedder.name
-                row.embedding_status = "done"
+        _mark_embedding_status(
+            session, [r.entity_key for r in records], embedder.name
+        )
         session.commit()
 
     mode = "全量重建" if needs_full_rebuild else "增量更新"

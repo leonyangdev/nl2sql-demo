@@ -306,6 +306,7 @@ class MilvusVectorStore(BaseVectorStore):
             utility,
         )
 
+        self._Collection = Collection
         self._DataType = DataType
         self._FieldSchema = FieldSchema
         self._CollectionSchema = CollectionSchema
@@ -317,18 +318,26 @@ class MilvusVectorStore(BaseVectorStore):
 
         self.collection_name = collection_name
         self.dim = dim or config.HASH_EMBEDDING_DIM
+        self.collection = self._ensure_collection()
 
-        if utility.has_collection(collection_name):
-            self.collection = Collection(collection_name)
-            self.collection.load()
-        else:
-            self.collection = Collection(
-                name=collection_name,
-                schema=CollectionSchema(
-                    fields=self._build_fields(dim),
-                    description="NL2SQL metadata semantic index",
-                ),
-            )
+    def _ensure_collection(self):
+        """打开已有 collection；不存在就按 schema 建一个空的。
+
+        注意 dim 要用 self.dim（已兜底），不能直接用入参 dim ——
+        入参默认是 0，建出来的 FLOAT_VECTOR 字段维度会是 0。
+        """
+        if self._utility.has_collection(self.collection_name):
+            collection = self._Collection(self.collection_name)
+            collection.load()
+            return collection
+
+        return self._Collection(
+            name=self.collection_name,
+            schema=self._CollectionSchema(
+                fields=self._build_fields(self.dim),
+                description="NL2SQL metadata semantic index",
+            ),
+        )
 
     def _build_fields(self, dim: int) -> list:
         DataType, FieldSchema = self._DataType, self._FieldSchema
@@ -347,17 +356,29 @@ class MilvusVectorStore(BaseVectorStore):
         if self._utility.has_collection(self.collection_name):
             self._utility.drop_collection(self.collection_name)
 
+        # drop 之后必须立刻重建空 collection。
+        # 本地后端 reset 只是 DELETE FROM，表还在；Milvus 这边是整表删掉，
+        # 不重建的话后面 upsert / search 会直接报
+        # "can't find collection[database=default][collection=...]"。
+        self.collection = self._ensure_collection()
+
     def upsert(self, records: list[VectorRecord]) -> int:
+        # 必须用「行式字典」List[Dict]，不能用 List[List]：
+        # pymilvus 2.x 会把 List[List] 当行式（自动走 upsert_rows），
+        # 但 3.x 的 is_row_based() 只认 Dict / List[Dict]，
+        # List[List] 会被当成列式去校验，于是报
+        # "The data doesn't match with schema fields, expect 7 list, got N"。
+        # List[Dict] 在 2.x / 3.x 上都走行式，是最稳的写法。
         rows = [
-            [
-                r.entity_key,
-                r.entity_type,
-                r.entity_id,
-                r.business_domain or "",
-                r.table_id if r.table_id is not None else -1,
-                r.content[:8000],
-                r.embedding,
-            ]
+            {
+                "entity_key": r.entity_key,
+                "entity_type": r.entity_type,
+                "entity_id": r.entity_id,
+                "business_domain": r.business_domain or "",
+                "table_id": r.table_id if r.table_id is not None else -1,
+                "content": r.content[:8000],
+                "embedding": r.embedding,
+            }
             for r in records
         ]
         self.collection.upsert(rows)
